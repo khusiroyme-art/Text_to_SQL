@@ -47,19 +47,28 @@ def _get_client() -> anthropic.Anthropic:
     if _client is None:
         if not config.ANTHROPIC_API_KEY:
             raise GenerationError(
-                "ANTHROPIC_API_KEY is not set - copy .env.example and export it."
+                "ANTHROPIC_API_KEY is not set. Export it in the shell that runs the "
+                "server (see .env.example for every supported variable)."
             )
         _client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
     return _client
 
 
-# Belt and braces: rule 1 forbids fences, but a stray ```sql block would turn
-# into a syntax error at the database rather than something we can explain.
-_FENCE = re.compile(r"^```(?:sql)?\s*|\s*```$", re.IGNORECASE)
+# Belt and braces. Rule 1 of the system prompt already forbids fences and
+# prose, and this is not a substitute for that rule - but models occasionally
+# answer "Sure! Here's the query: ```sql ... ```" anyway, and the prose then
+# reaches the parser as an unterminated string. Pulling the fenced block out
+# is cheaper than explaining a tokenizer error to a user.
+_FENCED_BLOCK = re.compile(r"```(?:sql)?[ \t]*\r?\n?(.+?)```", re.IGNORECASE | re.DOTALL)
+#: Fences with nothing to pair against - a leading or trailing stray.
+_STRAY_FENCE = re.compile(r"^```(?:sql)?\s*|\s*```$", re.IGNORECASE)
 
 
 def _extract_sql(text: str) -> str:
-    sql = _FENCE.sub("", text.strip()).strip()
+    stripped = text.strip()
+    fenced = _FENCED_BLOCK.search(stripped)
+    # A complete fenced block wins: whatever surrounds it is commentary.
+    sql = (fenced.group(1) if fenced else _STRAY_FENCE.sub("", stripped)).strip()
     if not sql:
         raise GenerationError("Model returned an empty response")
     return sql

@@ -73,8 +73,14 @@ def check(
 
     try:
         statements = sqlglot.parse(sql, read=dialect)
-    except sqlglot.errors.ParseError as exc:
+    except sqlglot.errors.SqlglotError as exc:
         # Unparseable is unsafe: we cannot reason about what we cannot read.
+        #
+        # Catch the base class, not ParseError. TokenError is a *sibling* of
+        # ParseError, not a subclass, and it is what sqlglot raises for an
+        # unterminated quote - which is exactly what prose wrapped around a
+        # query produces. Catching only ParseError let it escape as a 500,
+        # turning "reject this" into "crash the request".
         raise UnsafeSQL(f"Could not parse SQL: {exc}") from exc
 
     # Drop the empty trailing statement a lone semicolon leaves behind, so
