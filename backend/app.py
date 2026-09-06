@@ -11,7 +11,7 @@ from flask import Flask, jsonify, request
 from . import config
 from .db import registry
 from .db.registry import UnknownDatabase
-from .services import safety
+from .services import safety, schema_service
 from .services.sql_generator import generate_sql
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -25,6 +25,24 @@ def create_app() -> Flask:
     @app.get("/health")
     def health():
         return jsonify({"status": "ok", "databases": registry.list_databases()})
+
+    @app.get("/schema/<db_id>")
+    def schema(db_id: str):
+        """Schema for one database, both as DDL and as a {table: columns} map."""
+        try:
+            connector = registry.get_connector(db_id)
+        except UnknownDatabase as exc:
+            return jsonify({"error": str(exc)}), 404
+        loaded = schema_service.get_schema(db_id, connector)
+        return jsonify(
+            {
+                "db_id": db_id,
+                "dialect": loaded.dialect,
+                "ddl": schema_service.format_ddl(loaded),
+                "tables": loaded.as_mapping(),
+                "error": None,
+            }
+        )
 
     @app.post("/query")
     def query():
@@ -42,7 +60,12 @@ def create_app() -> Flask:
         except UnknownDatabase as exc:
             return _response(error=str(exc)), 404
 
-        generation = generate_sql(question, dialect=connector.dialect)
+        loaded_schema = schema_service.get_schema(db_id, connector)
+        generation = generate_sql(
+            question,
+            dialect=connector.dialect,
+            schema_ddl=schema_service.format_ddl(loaded_schema),
+        )
         sql = generation.sql
         log.info("db=%s question=%r -> sql=%r", db_id, question, sql)
 
