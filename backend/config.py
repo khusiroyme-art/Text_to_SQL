@@ -1,8 +1,14 @@
 import os
 
 FLASK_HOST = os.environ.get("FLASK_HOST", "127.0.0.1")
-FLASK_PORT = int(os.environ.get("FLASK_PORT", "5000"))
-DEBUG = os.environ.get("FLASK_DEBUG", "1") == "1"
+# Off unless asked for. A debug-on default is fine until the day it ships:
+# Flask's debugger executes arbitrary code from the browser. Turn it on
+# explicitly for local work (FLASK_DEBUG=1), never by forgetting to turn it off.
+DEBUG = os.environ.get("FLASK_DEBUG", "0") == "1"
+
+# Render (and most hosts) inject the port to bind. Respect it or the deploy
+# looks healthy and answers nothing.
+PORT = int(os.environ.get("PORT", os.environ.get("FLASK_PORT", "5000")))
 
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 ANTHROPIC_MODEL = os.environ.get("ANTHROPIC_MODEL", "claude-opus-5")
@@ -29,5 +35,14 @@ UPLOAD_DIR = os.environ.get(
 )
 MAX_UPLOAD_BYTES = int(os.environ.get("MAX_UPLOAD_BYTES", str(25 * 1024 * 1024)))
 
-# Frontend origin, for CORS.
+# Frontend origin, for CORS. In production the built frontend is served by
+# this same Flask app, so it is same-origin and this list is only used by the
+# Vite dev server.
 CORS_ORIGINS = os.environ.get("CORS_ORIGINS", "http://localhost:5173")
+
+# The built React app. Present in a deployed image, absent during local
+# backend-only work - app.py checks rather than assuming.
+FRONTEND_DIST = os.environ.get(
+    "FRONTEND_DIST",
+    os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "frontend", "dist"),
+)

@@ -17,6 +17,11 @@ export default function SchemaPanel({ schema }) {
       <h2>
         Schema <span className="muted">({schema.dialect})</span>
       </h2>
+      {schema.uploaded && (
+        <p className="muted ephemeral">
+          Temporary upload &mdash; cleared when the server restarts.
+        </p>
+      )}
       {tables.map(([table, columns]) => (
         <details key={table} open>
           <summary>{table}</summary>

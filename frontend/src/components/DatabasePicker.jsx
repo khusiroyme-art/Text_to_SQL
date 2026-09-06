@@ -51,6 +51,9 @@ export default function DatabasePicker({ databases, dbId, onSelect, onUploaded, 
         className="chip"
         disabled={disabled || busy}
         onClick={() => inputRef.current?.click()}
+        // Say it plainly rather than letting someone discover it: uploads live
+        // on the server's local disk and do not survive a restart.
+        title="Uploaded databases are temporary and are cleared when the server restarts."
       >
         {busy ? "Uploading..." : "Upload .sqlite"}
       </button>

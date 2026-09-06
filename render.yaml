@@ -1,0 +1,23 @@
+# Render blueprint: one web service serving both the API and the built React
+# app. Docker rather than Render's native Python runtime because the build
+# needs Node (for Vite) and Python (for Flask) in the same step - the
+# Dockerfile states that dependency explicitly instead of relying on whatever
+# happens to be in a base image.
+services:
+  - type: web
+    name: text-to-sql
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      # sync: false means "prompt me, never store it in git". The key is set
+      # once in the Render dashboard and lives only there.
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: ANTHROPIC_MODEL
+        value: claude-opus-5
+      - key: ANTHROPIC_EFFORT
+        value: medium
+      - key: FLASK_DEBUG
+        value: "0"

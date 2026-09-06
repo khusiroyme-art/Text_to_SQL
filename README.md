@@ -15,13 +15,15 @@ Natural-language question -> generated SQL (editable) -> executed safely -> resu
 | 5 | Retry loop on DB error | done |
 | 6 | React frontend | done |
 | 7 | Charts, multi-DB upload, voice input | done |
-| 8 | Deploy | pending |
+| 8 | Deploy | done |
 
 ## Layout
 
 ```
+Dockerfile                two-stage: Node builds the app, Python runs it
+render.yaml               Render blueprint (one web service)
 backend/
-  app.py                  Flask entrypoint
+  app.py                  Flask entrypoint + serves the built frontend
   config.py               env config
   db/
     base.py               DBConnector ABC + QueryResult
@@ -29,7 +31,9 @@ backend/
     registry.py           db_id -> connector
   services/
     schema_service.py     introspection cache + CREATE TABLE DDL rendering
-    sql_generator.py      NL -> SQL (stubbed until Phase 3)
+    prompts.py            system prompt, rules, few-shot examples
+    sql_generator.py      Messages API call, response parsing, logging
+    query_service.py      generate -> check -> execute -> repair loop
     safety.py             sqlglot parse + SELECT-only allowlist + row limit
     upload_service.py     validates and registers user-supplied .sqlite files
     llm_log.py            {prompt, response, latency} JSONL logging
@@ -67,8 +71,45 @@ npm install
 npm run dev                          # http://localhost:5173
 ```
 
-Open http://localhost:5173. Both servers must run: the page is served by Vite,
-which proxies `/api/*` to Flask.
+Open http://localhost:5173. Both servers must run in development: the page is
+served by Vite, which proxies `/api/*` to Flask.
+
+To run the production shape locally instead - one process, one port, no Vite:
+
+```bash
+cd frontend && npm run build && cd ..
+python -m backend.app                # http://127.0.0.1:5000 serves both
+```
+
+## Deploy
+
+Render, one web service, from `render.yaml`:
+
+1. Push to GitHub.
+2. In Render: **New > Blueprint**, point it at the repo. It reads
+   `render.yaml`.
+3. Set `ANTHROPIC_API_KEY` when prompted. It is marked `sync: false`, so it
+   lives in Render's dashboard and never in the repo.
+4. Deploy. `/health` is the health check.
+
+It builds from the `Dockerfile` rather than Render's native Python runtime
+because the build needs Node (Vite) *and* Python (Flask) in one step - the
+Dockerfile states that dependency instead of relying on whatever a base image
+happens to include. The same image runs anywhere:
+
+```bash
+docker build -t text-to-sql .
+docker run -p 8000:8000 -e ANTHROPIC_API_KEY=sk-ant-... text-to-sql
+```
+
+**Uploaded databases are ephemeral.** They are written to the container's
+local disk and are lost on every restart and redeploy - which on Render's free
+tier includes spinning down when idle. They are meant for a single session,
+not for storage. Attaching a persistent disk is the fix if that ever matters.
+
+`FLASK_DEBUG` defaults to off. Flask's debugger executes arbitrary code sent
+from a browser, so it is opt-in for local work rather than opt-out in
+production.
 
 ```bash
 curl -X POST http://127.0.0.1:5000/query \
@@ -102,6 +143,8 @@ registered, which is what the database picker renders.
 - Schemas are cached per `db_id` and evicted by a cheap fingerprint (SQLite: file mtime + size), so introspection does not run on every request.
 - Every LLM call is logged with prompt, response and latency (`services/llm_log.py`).
 - `db_id` is a registry key, never a filesystem path from the client.
+- In production one Flask process serves both the built React app and the API, so there is no CORS, no second service, and no origin to keep in sync.
+- Flask's built-in static route is switched off deliberately: it would claim `/<path:filename>` and 404 every client-side route. The SPA view owns those paths instead - but a missing `.js` or `.css` still 404s rather than being answered with the HTML shell, because masking a build error as a MIME error helps nobody.
 - An upload is checked cheapest-first: extension, then size, then SQLite's magic header, then an actual read-only introspection. It is stored under a generated id, never the client's filename, so a traversal attempt is just a odd-looking label.
 - Chart type is derived from the data, not chosen: a single value is a stat tile (never a one-bar bar chart), a date-like x axis is a line, categories are bars, and 25+ rows stay a table. Numeric `id` columns are labels, not measures.
 - Chart colours are the first three slots of a validated categorical palette, checked against this app's surface for lightness, chroma, colour-blind separation and contrast. A fourth measure is never given a generated hue - it stays in the table.
