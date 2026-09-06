@@ -15,5 +15,11 @@ MAX_TOKENS = int(os.environ.get("ANTHROPIC_MAX_TOKENS", "16000"))
 # snappy; raise it if generated SQL starts missing joins on wider schemas.
 EFFORT = os.environ.get("ANTHROPIC_EFFORT", "medium")
 
+# Total tries for one question: the first generation plus repair attempts.
+# 3 is the knee of the curve - a model that has seen the schema and its own
+# error twice is not usually saved by a third look, and every attempt is a
+# paid API call the user waits on.
+MAX_ATTEMPTS = int(os.environ.get("MAX_ATTEMPTS", "3"))
+
 # Phase 6 frontend origin, for CORS.
 CORS_ORIGINS = os.environ.get("CORS_ORIGINS", "http://localhost:5173")

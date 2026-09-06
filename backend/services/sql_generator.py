@@ -149,3 +149,30 @@ def generate_sql(question: str, dialect: str, schema_ddl: str | None = None) -> 
     sql = _extract_sql(text)
     log.info("generated sql in %sms: %r", debug["latency_ms"], sql)
     return Generation(sql=sql, debug=debug)
+
+
+def repair_sql(
+    question: str,
+    dialect: str,
+    schema_ddl: str,
+    failed_sql: str,
+    error_message: str,
+) -> Generation:
+    """Second (and later) attempt: show the model its own failure and the error.
+
+    The system prompt is byte-identical to the one build_prompt produced, so
+    the schema and rules stay in front of the model and the cached prefix
+    survives across attempts - only the user turn changes.
+    """
+    prompt = prompts.build_repair_prompt(
+        schema=schema_ddl,
+        question=question,
+        failed_sql=failed_sql,
+        error_message=error_message,
+        dialect=dialect,
+        row_limit=safety.DEFAULT_ROW_LIMIT,
+    )
+    text, debug = _complete(prompt, kind="repair")
+    sql = _extract_sql(text)
+    log.info("repaired sql in %sms: %r", debug["latency_ms"], sql)
+    return Generation(sql=sql, debug=debug)

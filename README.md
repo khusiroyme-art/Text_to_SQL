@@ -12,7 +12,7 @@ Natural-language question -> generated SQL (editable) -> executed safely -> resu
 | 2 | Schema extraction + DDL formatting + cache | done |
 | 3 | Prompt engineering (`build_prompt`) + live Claude call | done |
 | 4 | Safety layer (SELECT-only, allowlist, timeout, LIMIT) | done |
-| 5 | Retry loop on DB error | pending |
+| 5 | Retry loop on DB error | done |
 | 6 | React frontend | pending |
 | 7 | Charts, multi-DB upload, voice input | pending |
 | 8 | Deploy | pending |
@@ -53,7 +53,7 @@ curl -X POST http://127.0.0.1:5000/query \
   -d '{"question":"Who are our top spending customers?","db_id":"demo"}'
 ```
 
-Response shape is always `{ sql, result, error, columns }`.
+Response shape is always `{ sql, result, error, columns, attempts }`. `error` is the single place to look: a rejected query, a dead API key and an exhausted retry budget all land there.
 
 `GET /schema/<db_id>` returns the cached schema as both prompt-ready DDL and a
 `{table: [[col, type], ...]}` mapping.
@@ -64,6 +64,8 @@ Response shape is always `{ sql, result, error, columns }`.
 - The safety layer is an **allowlist, not a keyword blacklist**: sqlglot parses the statement and only a single top-level SELECT (or UNION/INTERSECT/EXCEPT) is accepted. Stacked statements, comment tricks and casing games all fail on the parse tree rather than on a regex, and an unmodelled statement type fails closed.
 - `check()` executes the SQL it *regenerated*, so generation runs at `ErrorLevel.RAISE`: if sqlglot cannot render a construct faithfully it is rejected instead of quietly rewritten.
 - Results are capped at `DEFAULT_ROW_LIMIT` (500). A smaller LIMIT the user asked for is preserved; a larger or non-literal one is clamped.
+- The retry loop is a real capped loop in `services/query_service.py`, not a prompt instruction ("if it fails, fix it"). A loop can be counted, capped and logged; a sentence cannot. The database's own error text is what goes back to the model.
+- Not every failure is worth retrying: a timeout re-runs identically and an unreachable API will not answer, so both return immediately. A bad column name or a rejected statement gets another attempt.
 - `timeout` is a real wall-clock budget, not sqlite3's busy-lock timeout: a progress handler interrupts the statement and raises `QueryTimeout`. An unbounded recursive CTE is a legal SELECT, so this is the only thing that stops one.
 - SQLite is opened read-only at the driver level (`file:...?mode=ro`) as a backstop beneath the safety layer.
 - Schemas are cached per `db_id` and evicted by a cheap fingerprint (SQLite: file mtime + size), so introspection does not run on every request.

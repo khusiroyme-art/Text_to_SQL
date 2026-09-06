@@ -2,7 +2,8 @@
 
 POST /query -> {sql, result, error, columns}: schema is looked up, Claude
 generates the SQL, and every statement is routed through the safety layer
-before it reaches the database.
+before it reaches the database. The generate/check/execute/repair loop lives
+in services/query_service.py; this file only unpacks the request.
 """
 
 import logging
@@ -11,10 +12,8 @@ from flask import Flask, jsonify, request
 
 from . import config
 from .db import registry
-from .db.base import QueryTimeout
 from .db.registry import UnknownDatabase
-from .services import safety, schema_service
-from .services.sql_generator import GenerationError, generate_sql
+from .services import query_service, schema_service
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("text2sql.app")
@@ -62,42 +61,35 @@ def create_app() -> Flask:
         except UnknownDatabase as exc:
             return _response(error=str(exc)), 404
 
-        loaded_schema = schema_service.get_schema(db_id, connector)
-        try:
-            generation = generate_sql(
-                question,
-                dialect=connector.dialect,
-                schema_ddl=schema_service.format_ddl(loaded_schema),
-            )
-        except GenerationError as exc:
-            log.warning("generation failed: %s", exc)
-            return _response(error=str(exc)), 502
-        sql = generation.sql
-        log.info("db=%s question=%r -> sql=%r", db_id, question, sql)
-
-        try:
-            checked_sql = safety.check(sql, dialect=connector.dialect)
-        except safety.UnsafeSQL as exc:
-            return _response(sql=sql, error=f"Rejected by safety layer: {exc}"), 400
-
-        try:
-            result = connector.execute(checked_sql, timeout=safety.DEFAULT_TIMEOUT_SECONDS)
-        except QueryTimeout as exc:
-            # Not a retry candidate: re-running the same query times out again.
-            log.warning("query timed out: %s", exc)
-            return _response(sql=checked_sql, error=str(exc)), 200
-        except Exception as exc:  # Phase 5 turns this into the retry loop.
-            log.warning("execution failed: %s", exc)
-            return _response(sql=checked_sql, error=str(exc)), 200
-
-        return _response(sql=checked_sql, columns=result.columns, result=result.to_dict()["rows"])
+        outcome = query_service.run_query(db_id, connector, question)
+        log.info("db=%s question=%r attempts=%s", db_id, question, len(outcome.attempts))
+        return _response(
+            sql=outcome.sql,
+            result=outcome.rows,
+            error=outcome.error,
+            columns=outcome.columns,
+            attempts=len(outcome.attempts),
+        )
 
     return app
 
 
-def _response(sql: str | None = None, result=None, error: str | None = None, columns=None):
-    """The one response shape the frontend ever has to handle."""
-    return jsonify({"sql": sql, "result": result, "error": error, "columns": columns})
+def _response(
+    sql: str | None = None,
+    result=None,
+    error: str | None = None,
+    columns=None,
+    attempts: int = 0,
+):
+    """The one response shape the frontend ever has to handle.
+
+    `error` is always present and always the single place to look: a rejected
+    query, a dead API key and an exhausted retry budget all land here rather
+    than in an HTTP status the client has to branch on.
+    """
+    return jsonify(
+        {"sql": sql, "result": result, "error": error, "columns": columns, "attempts": attempts}
+    )
 
 
 app = create_app()
