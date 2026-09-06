@@ -83,7 +83,10 @@ python -m backend.app                # http://127.0.0.1:5000 serves both
 
 ## Deploy
 
-Render, one web service, from `render.yaml`:
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/khusiroyme-art/Text_to_SQL)
+
+One click on the button above: Render reads `render.yaml`, builds the
+Dockerfile, and asks only for `ANTHROPIC_API_KEY`. Or by hand:
 
 1. Push to GitHub.
 2. In Render: **New > Blueprint**, point it at the repo. It reads
