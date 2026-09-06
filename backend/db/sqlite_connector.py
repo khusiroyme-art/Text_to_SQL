@@ -6,9 +6,10 @@ a hard backstop underneath the SQL safety layer, not a replacement for it.
 
 import os
 import sqlite3
+import time
 from typing import Any, Sequence
 
-from .base import Column, DBConnector, QueryResult, Schema, Table
+from .base import Column, DBConnector, QueryResult, QueryTimeout, Schema, Table
 
 # Tables SQLite creates for its own bookkeeping; never shown to the LLM.
 _INTERNAL_PREFIXES = ("sqlite_",)
@@ -25,19 +26,48 @@ class SQLiteConnector(DBConnector):
     def _connect(self, timeout: float) -> sqlite3.Connection:
         # file: URI + mode=ro => read-only handle. Other processes can still
         # write (e.g. a re-seeded demo db), which is why we fingerprint mtime.
+        #
+        # sqlite3's own `timeout` is the busy-lock timeout only - how long to
+        # wait for another writer - and does nothing about a slow query. The
+        # query budget is enforced by the progress handler in execute().
         uri = f"file:{self.path.replace(os.sep, '/')}?mode=ro"
         conn = sqlite3.connect(uri, uri=True, timeout=timeout)
         conn.row_factory = sqlite3.Row
         return conn
 
     def execute(self, sql: str, params: Sequence[Any] = (), timeout: float = 5.0) -> QueryResult:
+        """Run one statement under a wall-clock budget.
+
+        SQLite calls the progress handler every N virtual-machine instructions;
+        returning non-zero aborts the statement. That is the only way to stop a
+        runaway query from inside the same thread, and it covers fetch as well
+        as execute because SQLite produces rows lazily.
+        """
         conn = self._connect(timeout)
+        deadline = time.monotonic() + timeout
+        timed_out = False
+
+        def _watchdog() -> int:
+            nonlocal timed_out
+            if time.monotonic() >= deadline:
+                timed_out = True
+                return 1  # abort
+            return 0
+
+        conn.set_progress_handler(_watchdog, 2000)
         try:
             cur = conn.execute(sql, params)
             rows = cur.fetchall()
             columns = [d[0] for d in cur.description] if cur.description else []
             return QueryResult(columns, [tuple(r) for r in rows])
+        except sqlite3.OperationalError:
+            # The interrupt surfaces as a generic OperationalError, so the flag
+            # is what distinguishes "we stopped it" from a real SQL error.
+            if timed_out:
+                raise QueryTimeout(f"Query exceeded {timeout:g}s and was cancelled") from None
+            raise
         finally:
+            conn.set_progress_handler(None, 0)
             conn.close()
 
     def fingerprint(self) -> str:

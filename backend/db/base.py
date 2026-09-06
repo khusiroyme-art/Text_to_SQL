@@ -9,6 +9,10 @@ from dataclasses import dataclass, field
 from typing import Any, Sequence
 
 
+class QueryTimeout(Exception):
+    """A query ran past its wall-clock budget and was interrupted."""
+
+
 class QueryResult:
     """Uniform result container returned by every connector."""
 
@@ -63,7 +67,12 @@ class DBConnector(ABC):
 
     @abstractmethod
     def execute(self, sql: str, params: Sequence[Any] = (), timeout: float = 5.0) -> QueryResult:
-        """Run a single read-only statement and return columns + rows."""
+        """Run a single read-only statement and return columns + rows.
+
+        `timeout` is a wall-clock budget for the query itself: implementations
+        must interrupt work that exceeds it and raise QueryTimeout. A cross
+        join the model did not intend should cost seconds, not the process.
+        """
 
     @abstractmethod
     def introspect(self) -> Schema:

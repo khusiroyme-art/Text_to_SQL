@@ -11,7 +11,7 @@ Natural-language question -> generated SQL (editable) -> executed safely -> resu
 | 1 | Backend skeleton, `POST /query`, DB connector abstraction | done |
 | 2 | Schema extraction + DDL formatting + cache | done |
 | 3 | Prompt engineering (`build_prompt`) + live Claude call | done |
-| 4 | Safety layer (SELECT-only, blacklist, timeout, LIMIT) | pending |
+| 4 | Safety layer (SELECT-only, allowlist, timeout, LIMIT) | done |
 | 5 | Retry loop on DB error | pending |
 | 6 | React frontend | pending |
 | 7 | Charts, multi-DB upload, voice input | pending |
@@ -30,7 +30,7 @@ backend/
   services/
     schema_service.py     introspection cache + CREATE TABLE DDL rendering
     sql_generator.py      NL -> SQL (stubbed until Phase 3)
-    safety.py             single chokepoint for every SQL string
+    safety.py             sqlglot parse + SELECT-only allowlist + row limit
     llm_log.py            {prompt, response, latency} JSONL logging
   data/
     seed_demo.py          4-table sales dataset
@@ -61,6 +61,10 @@ Response shape is always `{ sql, result, error, columns }`.
 ## Design rules
 
 - Every SQL string passes through `services/safety.py::check()` before execution. No exceptions, no string interpolation into `cursor.execute`.
+- The safety layer is an **allowlist, not a keyword blacklist**: sqlglot parses the statement and only a single top-level SELECT (or UNION/INTERSECT/EXCEPT) is accepted. Stacked statements, comment tricks and casing games all fail on the parse tree rather than on a regex, and an unmodelled statement type fails closed.
+- `check()` executes the SQL it *regenerated*, so generation runs at `ErrorLevel.RAISE`: if sqlglot cannot render a construct faithfully it is rejected instead of quietly rewritten.
+- Results are capped at `DEFAULT_ROW_LIMIT` (500). A smaller LIMIT the user asked for is preserved; a larger or non-literal one is clamped.
+- `timeout` is a real wall-clock budget, not sqlite3's busy-lock timeout: a progress handler interrupts the statement and raises `QueryTimeout`. An unbounded recursive CTE is a legal SELECT, so this is the only thing that stops one.
 - SQLite is opened read-only at the driver level (`file:...?mode=ro`) as a backstop beneath the safety layer.
 - Schemas are cached per `db_id` and evicted by a cheap fingerprint (SQLite: file mtime + size), so introspection does not run on every request.
 - Every LLM call is logged with prompt, response and latency (`services/llm_log.py`).

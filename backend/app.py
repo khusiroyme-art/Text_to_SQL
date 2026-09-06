@@ -2,8 +2,7 @@
 
 POST /query -> {sql, result, error, columns}: schema is looked up, Claude
 generates the SQL, and every statement is routed through the safety layer
-before it reaches the database. The safety layer is still a pass-through
-placeholder until Phase 4.
+before it reaches the database.
 """
 
 import logging
@@ -12,6 +11,7 @@ from flask import Flask, jsonify, request
 
 from . import config
 from .db import registry
+from .db.base import QueryTimeout
 from .db.registry import UnknownDatabase
 from .services import safety, schema_service
 from .services.sql_generator import GenerationError, generate_sql
@@ -82,6 +82,10 @@ def create_app() -> Flask:
 
         try:
             result = connector.execute(checked_sql, timeout=safety.DEFAULT_TIMEOUT_SECONDS)
+        except QueryTimeout as exc:
+            # Not a retry candidate: re-running the same query times out again.
+            log.warning("query timed out: %s", exc)
+            return _response(sql=checked_sql, error=str(exc)), 200
         except Exception as exc:  # Phase 5 turns this into the retry loop.
             log.warning("execution failed: %s", exc)
             return _response(sql=checked_sql, error=str(exc)), 200
