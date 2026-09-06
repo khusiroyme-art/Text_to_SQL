@@ -13,7 +13,7 @@ Natural-language question -> generated SQL (editable) -> executed safely -> resu
 | 3 | Prompt engineering (`build_prompt`) + live Claude call | done |
 | 4 | Safety layer (SELECT-only, allowlist, timeout, LIMIT) | done |
 | 5 | Retry loop on DB error | done |
-| 6 | React frontend | pending |
+| 6 | React frontend | done |
 | 7 | Charts, multi-DB upload, voice input | pending |
 | 8 | Deploy | pending |
 
@@ -35,10 +35,18 @@ backend/
   data/
     seed_demo.py          4-table sales dataset
     demo.sqlite           shipped demo database
-frontend/                 React app (Phase 6)
+frontend/
+  vite.config.js          dev-server proxy: /api -> 127.0.0.1:5000
+  src/
+    api.js                every backend call, one response shape
+    App.jsx               page state and the ask/run flows
+    components/           SchemaPanel, SqlPanel, ResultTable
+    styles.css
 ```
 
 ## Run
+
+Backend:
 
 ```bash
 pip install -r backend/requirements.txt
@@ -46,6 +54,17 @@ export ANTHROPIC_API_KEY=sk-ant-...   # see .env.example
 python backend/data/seed_demo.py     # only needed to re-seed
 python -m backend.app                # http://127.0.0.1:5000
 ```
+
+Frontend (second terminal):
+
+```bash
+cd frontend
+npm install
+npm run dev                          # http://localhost:5173
+```
+
+Open http://localhost:5173. Both servers must run: the page is served by Vite,
+which proxies `/api/*` to Flask.
 
 ```bash
 curl -X POST http://127.0.0.1:5000/query \
@@ -57,6 +76,10 @@ Response shape is always `{ sql, result, error, columns, attempts }`. `error` is
 
 `GET /schema/<db_id>` returns the cached schema as both prompt-ready DDL and a
 `{table: [[col, type], ...]}` mapping.
+
+`POST /execute` takes `{sql, db_id}` and runs SQL the user wrote or edited in
+the browser. It shares the safety layer but skips generation and retry: the
+user is the author, so an error is theirs to read and fix.
 
 ## Design rules
 
@@ -71,6 +94,9 @@ Response shape is always `{ sql, result, error, columns, attempts }`. `error` is
 - Schemas are cached per `db_id` and evicted by a cheap fingerprint (SQLite: file mtime + size), so introspection does not run on every request.
 - Every LLM call is logged with prompt, response and latency (`services/llm_log.py`).
 - `db_id` is a registry key, never a filesystem path from the client.
+- Editing the SQL in the browser does not make it trusted: `/execute` runs it through the same `safety.check()` as generated SQL.
+- The frontend never branches on HTTP status. Every call resolves to `{sql, result, error, columns, attempts}` and `error` is the only failure channel - even a network outage is synthesised into that shape.
+- The generated SQL is shown and editable because it is a draft, not an oracle; the schema sits on screen because the first question about a wrong answer is always whether the model knew about that column.
 - Prompt *text* lives in `services/prompts.py`, prompt *plumbing* in `services/sql_generator.py`, so the wording can be rewritten without touching an API call.
 - The system prompt (rules + schema DDL + few-shots) is stable per database and marked cacheable; the question rides in `messages` after the cache breakpoint. `cache_read_input_tokens` is logged so a silent cache miss is visible.
 - The prompt is told the same row limit `safety.DEFAULT_ROW_LIMIT` actually enforces - one constant, no drift.

@@ -9,6 +9,7 @@ in services/query_service.py; this file only unpacks the request.
 import logging
 
 from flask import Flask, jsonify, request
+from flask_cors import CORS
 
 from . import config
 from .db import registry
@@ -21,6 +22,9 @@ log = logging.getLogger("text2sql.app")
 
 def create_app() -> Flask:
     app = Flask(__name__)
+    # The React dev server is a different origin (5173 vs 5000), so the browser
+    # blocks its fetches without this. Origins come from config, not "*".
+    CORS(app, origins=[o.strip() for o in config.CORS_ORIGINS.split(",") if o.strip()])
     registry.bootstrap()
 
     @app.get("/health")
@@ -63,6 +67,36 @@ def create_app() -> Flask:
 
         outcome = query_service.run_query(db_id, connector, question)
         log.info("db=%s question=%r attempts=%s", db_id, question, len(outcome.attempts))
+        return _response(
+            sql=outcome.sql,
+            result=outcome.rows,
+            error=outcome.error,
+            columns=outcome.columns,
+            attempts=len(outcome.attempts),
+        )
+
+    @app.post("/execute")
+    def execute():
+        """Run SQL the user wrote or edited in the browser.
+
+        Same chokepoint as generated SQL: editing a query in a text box does
+        not make it trusted.
+        """
+        payload = request.get_json(silent=True) or {}
+        sql = (payload.get("sql") or "").strip()
+        db_id = (payload.get("db_id") or "").strip()
+
+        if not sql:
+            return _response(error="'sql' is required"), 400
+        if not db_id:
+            return _response(error="'db_id' is required"), 400
+
+        try:
+            connector = registry.get_connector(db_id)
+        except UnknownDatabase as exc:
+            return _response(error=str(exc)), 404
+
+        outcome = query_service.run_sql(connector, sql)
         return _response(
             sql=outcome.sql,
             result=outcome.rows,

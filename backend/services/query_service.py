@@ -45,6 +45,41 @@ class QueryOutcome:
         return self.error is None
 
 
+def run_sql(connector: DBConnector, sql: str) -> QueryOutcome:
+    """Check and execute SQL that a *human* wrote or edited.
+
+    No generation and no retry: the user is the author here, so an error is
+    something for them to read and fix, not something to paper over with
+    another API call. The safety layer applies exactly as it does to generated
+    SQL - an edited query is not a trusted query.
+    """
+    outcome = QueryOutcome()
+    try:
+        checked_sql = safety.check(sql, dialect=connector.dialect)
+    except safety.UnsafeSQL as exc:
+        outcome.sql = sql
+        outcome.error = f"Rejected by safety layer: {exc}"
+        outcome.attempts.append(Attempt(1, sql, "safety", outcome.error))
+        return outcome
+
+    outcome.sql = checked_sql
+    try:
+        result = connector.execute(checked_sql, timeout=safety.DEFAULT_TIMEOUT_SECONDS)
+    except QueryTimeout as exc:
+        outcome.error = str(exc)
+        outcome.attempts.append(Attempt(1, checked_sql, "execution", outcome.error))
+        return outcome
+    except Exception as exc:
+        outcome.error = str(exc)
+        outcome.attempts.append(Attempt(1, checked_sql, "execution", outcome.error))
+        return outcome
+
+    outcome.columns = result.columns
+    outcome.rows = [list(r) for r in result.rows]
+    outcome.attempts.append(Attempt(1, checked_sql, "ok"))
+    return outcome
+
+
 def run_query(db_id: str, connector: DBConnector, question: str) -> QueryOutcome:
     """Answer `question` against `connector`, retrying on recoverable errors.
 
