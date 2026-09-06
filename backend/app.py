@@ -1,7 +1,9 @@
 """Flask entrypoint.
 
-PHASE 1 scope: POST /query -> {sql, result, error, columns}, SQL generation
-stubbed, execution routed through the (currently pass-through) safety layer.
+POST /query -> {sql, result, error, columns}: schema is looked up, Claude
+generates the SQL, and every statement is routed through the safety layer
+before it reaches the database. The safety layer is still a pass-through
+placeholder until Phase 4.
 """
 
 import logging
@@ -12,7 +14,7 @@ from . import config
 from .db import registry
 from .db.registry import UnknownDatabase
 from .services import safety, schema_service
-from .services.sql_generator import generate_sql
+from .services.sql_generator import GenerationError, generate_sql
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("text2sql.app")
@@ -61,11 +63,15 @@ def create_app() -> Flask:
             return _response(error=str(exc)), 404
 
         loaded_schema = schema_service.get_schema(db_id, connector)
-        generation = generate_sql(
-            question,
-            dialect=connector.dialect,
-            schema_ddl=schema_service.format_ddl(loaded_schema),
-        )
+        try:
+            generation = generate_sql(
+                question,
+                dialect=connector.dialect,
+                schema_ddl=schema_service.format_ddl(loaded_schema),
+            )
+        except GenerationError as exc:
+            log.warning("generation failed: %s", exc)
+            return _response(error=str(exc)), 502
         sql = generation.sql
         log.info("db=%s question=%r -> sql=%r", db_id, question, sql)
 

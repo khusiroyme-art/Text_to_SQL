@@ -10,7 +10,7 @@ Natural-language question -> generated SQL (editable) -> executed safely -> resu
 |-------|-------|-------|
 | 1 | Backend skeleton, `POST /query`, DB connector abstraction | done |
 | 2 | Schema extraction + DDL formatting + cache | done |
-| 3 | Prompt engineering (`build_prompt`) | pending |
+| 3 | Prompt engineering (`build_prompt`) + live Claude call | done |
 | 4 | Safety layer (SELECT-only, blacklist, timeout, LIMIT) | pending |
 | 5 | Retry loop on DB error | pending |
 | 6 | React frontend | pending |
@@ -42,6 +42,7 @@ frontend/                 React app (Phase 6)
 
 ```bash
 pip install -r backend/requirements.txt
+export ANTHROPIC_API_KEY=sk-ant-...   # see .env.example
 python backend/data/seed_demo.py     # only needed to re-seed
 python -m backend.app                # http://127.0.0.1:5000
 ```
@@ -64,3 +65,6 @@ Response shape is always `{ sql, result, error, columns }`.
 - Schemas are cached per `db_id` and evicted by a cheap fingerprint (SQLite: file mtime + size), so introspection does not run on every request.
 - Every LLM call is logged with prompt, response and latency (`services/llm_log.py`).
 - `db_id` is a registry key, never a filesystem path from the client.
+- Prompt *text* lives in `services/prompts.py`, prompt *plumbing* in `services/sql_generator.py`, so the wording can be rewritten without touching an API call.
+- The system prompt (rules + schema DDL + few-shots) is stable per database and marked cacheable; the question rides in `messages` after the cache breakpoint. `cache_read_input_tokens` is logged so a silent cache miss is visible.
+- The prompt is told the same row limit `safety.DEFAULT_ROW_LIMIT` actually enforces - one constant, no drift.
