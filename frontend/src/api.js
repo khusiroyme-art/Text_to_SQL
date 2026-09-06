@@ -31,6 +31,18 @@ export async function fetchHealth() {
   return response.json();
 }
 
+export async function uploadDatabase(file) {
+  const form = new FormData();
+  form.append("file", file);
+  // No Content-Type header: the browser must set the multipart boundary.
+  try {
+    const response = await fetch(`${BASE}/databases`, { method: "POST", body: form });
+    return response.json();
+  } catch {
+    return { error: "Upload failed - is the backend running on port 5000?" };
+  }
+}
+
 export async function fetchSchema(dbId) {
   const response = await fetch(`${BASE}/schema/${encodeURIComponent(dbId)}`);
   return response.json();

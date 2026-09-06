@@ -14,7 +14,7 @@ from flask_cors import CORS
 from . import config
 from .db import registry
 from .db.registry import UnknownDatabase
-from .services import query_service, schema_service
+from .services import query_service, schema_service, upload_service
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("text2sql.app")
@@ -25,11 +25,34 @@ def create_app() -> Flask:
     # The React dev server is a different origin (5173 vs 5000), so the browser
     # blocks its fetches without this. Origins come from config, not "*".
     CORS(app, origins=[o.strip() for o in config.CORS_ORIGINS.split(",") if o.strip()])
+    # Refuse an oversized body at the server, before it is buffered. The
+    # upload service checks the size again for a friendlier message; this is
+    # the hard stop that does not depend on our code running first.
+    app.config["MAX_CONTENT_LENGTH"] = config.MAX_UPLOAD_BYTES
     registry.bootstrap()
 
     @app.get("/health")
     def health():
-        return jsonify({"status": "ok", "databases": registry.list_databases()})
+        return jsonify(
+            {
+                "status": "ok",
+                "databases": registry.list_databases(),
+                "details": registry.describe_databases(),
+            }
+        )
+
+    @app.post("/databases")
+    def upload_database():
+        """Register a user-supplied SQLite file and return its summary."""
+        uploaded = request.files.get("file")
+        if uploaded is None or not uploaded.filename:
+            return jsonify({"error": "No file was uploaded (field name: 'file')"}), 400
+        try:
+            summary = upload_service.save_upload(uploaded)
+        except upload_service.UploadRejected as exc:
+            log.warning("upload rejected: %s", exc)
+            return jsonify({"error": str(exc)}), 400
+        return jsonify({**summary, "error": None}), 201
 
     @app.get("/schema/<db_id>")
     def schema(db_id: str):
@@ -104,6 +127,12 @@ def create_app() -> Flask:
             columns=outcome.columns,
             attempts=len(outcome.attempts),
         )
+
+    @app.errorhandler(413)
+    def too_large(_exc):
+        """MAX_CONTENT_LENGTH aborts before any view runs, so answer it here."""
+        limit_mb = config.MAX_UPLOAD_BYTES / (1024 * 1024)
+        return jsonify({"error": f"File is larger than the {limit_mb:.0f} MB limit"}), 413
 
     return app
 

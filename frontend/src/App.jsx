@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
 import { askQuestion, fetchHealth, fetchSchema, runSql } from "./api.js";
+import { useSpeech } from "./useSpeech.js";
+import DatabasePicker from "./components/DatabasePicker.jsx";
 import SchemaPanel from "./components/SchemaPanel.jsx";
+import ResultChart from "./components/ResultChart.jsx";
 import ResultTable from "./components/ResultTable.jsx";
 import SqlPanel from "./components/SqlPanel.jsx";
 
@@ -23,15 +26,24 @@ export default function App() {
   const [attempts, setAttempts] = useState(0);
   const [busy, setBusy] = useState(null); // "asking" | "running" | null
 
-  // Discover which databases the backend has registered, then select the first.
-  useEffect(() => {
-    fetchHealth()
-      .then((health) => {
-        setDatabases(health.databases || []);
-        setDbId((current) => current || (health.databases || [])[0] || "");
-      })
-      .catch(() => setError("Cannot reach the backend. Is it running on port 5000?"));
+  const speech = useSpeech(setQuestion);
+
+  // Refresh the database list. Called at boot and after every upload, so the
+  // picker is always the backend's view rather than a local guess.
+  const refreshDatabases = useCallback(async (selectId) => {
+    try {
+      const health = await fetchHealth();
+      const details = health.details || [];
+      setDatabases(details);
+      setDbId((current) => selectId || current || details[0]?.db_id || "");
+    } catch {
+      setError("Cannot reach the backend. Is it running on port 5000?");
+    }
   }, []);
+
+  useEffect(() => {
+    refreshDatabases();
+  }, [refreshDatabases]);
 
   useEffect(() => {
     if (!dbId) return;
@@ -77,6 +89,17 @@ export default function App() {
     setBusy(null);
   }
 
+  // A new database invalidates the previous answer: the SQL referenced tables
+  // that may not exist here, and leaving the old rows on screen next to a new
+  // database name is the kind of thing that gets misread as a result.
+  function onSelectDatabase(nextId) {
+    setDbId(nextId);
+    setResult(null);
+    setSql("");
+    setError(null);
+    setAttempts(0);
+  }
+
   return (
     <div className="app">
       <header className="header">
@@ -84,16 +107,16 @@ export default function App() {
           <h1>Text-to-SQL</h1>
           <p className="tagline">Ask in English. Read the SQL. Edit it if it is wrong.</p>
         </div>
-        <label className="db-picker">
-          Database
-          <select value={dbId} onChange={(e) => setDbId(e.target.value)}>
-            {databases.map((id) => (
-              <option key={id} value={id}>
-                {id}
-              </option>
-            ))}
-          </select>
-        </label>
+        <DatabasePicker
+          databases={databases}
+          dbId={dbId}
+          disabled={busy !== null}
+          onSelect={onSelectDatabase}
+          onUploaded={(newId) => {
+            onSelectDatabase(newId);
+            refreshDatabases(newId);
+          }}
+        />
       </header>
 
       <div className="layout">
@@ -108,10 +131,26 @@ export default function App() {
               onChange={(e) => setQuestion(e.target.value)}
               disabled={busy !== null}
             />
+            {/* Hidden rather than disabled where unsupported: a permanently
+                dead button is worse than no button. */}
+            {speech.supported && (
+              <button
+                type="button"
+                className={speech.listening ? "mic listening" : "mic"}
+                onClick={speech.toggle}
+                disabled={busy !== null}
+                title={speech.listening ? "Stop listening" : "Ask by voice"}
+                aria-label={speech.listening ? "Stop listening" : "Ask by voice"}
+              >
+                {speech.listening ? "Listening..." : "Speak"}
+              </button>
+            )}
             <button type="submit" disabled={busy !== null || !question.trim()}>
               {busy === "asking" ? "Thinking..." : "Ask"}
             </button>
           </form>
+
+          {speech.error && <p className="note">{speech.error}</p>}
 
           <div className="examples">
             {EXAMPLES.map((example) => (
@@ -143,6 +182,7 @@ export default function App() {
 
           <SqlPanel sql={sql} onChange={setSql} onRun={onRunSql} busy={busy} />
 
+          <ResultChart result={result} />
           <ResultTable result={result} />
         </main>
       </div>

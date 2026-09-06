@@ -21,5 +21,13 @@ EFFORT = os.environ.get("ANTHROPIC_EFFORT", "medium")
 # paid API call the user waits on.
 MAX_ATTEMPTS = int(os.environ.get("MAX_ATTEMPTS", "3"))
 
-# Phase 6 frontend origin, for CORS.
+# Uploaded databases (Phase 7). Kept out of backend/data/ so a stray upload
+# can never shadow or overwrite the shipped demo.
+UPLOAD_DIR = os.environ.get(
+    "UPLOAD_DIR",
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "uploads"),
+)
+MAX_UPLOAD_BYTES = int(os.environ.get("MAX_UPLOAD_BYTES", str(25 * 1024 * 1024)))
+
+# Frontend origin, for CORS.
 CORS_ORIGINS = os.environ.get("CORS_ORIGINS", "http://localhost:5173")

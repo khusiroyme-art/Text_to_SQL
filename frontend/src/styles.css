@@ -50,14 +50,6 @@ body {
   font-size: 13px;
 }
 
-.db-picker {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 13px;
-  color: var(--muted);
-}
-
 select,
 input[type="text"],
 textarea,
@@ -281,4 +273,137 @@ tbody tr:hover td {
 td.null {
   color: var(--muted);
   font-style: italic;
+}
+
+/* Database picker + upload */
+.db-picker {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.db-picker label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.picker-error {
+  color: var(--danger);
+  font-size: 12px;
+  max-width: 260px;
+}
+
+/* Voice input */
+.mic {
+  background: transparent;
+  color: var(--muted);
+  border: 1px solid var(--border);
+}
+
+.mic.listening {
+  color: var(--danger);
+  border-color: var(--danger);
+  animation: pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  50% { opacity: 0.55; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mic.listening { animation: none; }
+}
+
+/* Chart */
+.chart {
+  margin-top: 24px;
+}
+
+.chart-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.chart-head h2 {
+  margin: 0;
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
+
+.chart-body {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px 8px 4px;
+}
+
+/* A single value is a number, not a one-bar chart. */
+.stat-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 20px 22px;
+}
+
+.stat-label {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.stat-value {
+  font-size: 44px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+}
+
+/* Chart tooltip: identity comes from the swatch, text stays in ink tokens. */
+.tooltip {
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 12px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+}
+
+.tooltip-label {
+  color: var(--text);
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+.tooltip-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+}
+
+.tooltip-name {
+  flex: 1;
+}
+
+.tooltip-value {
+  color: var(--text);
+  font-family: var(--mono);
+}
+
+.swatch {
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+  flex: none;
 }

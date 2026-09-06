@@ -14,7 +14,7 @@ Natural-language question -> generated SQL (editable) -> executed safely -> resu
 | 4 | Safety layer (SELECT-only, allowlist, timeout, LIMIT) | done |
 | 5 | Retry loop on DB error | done |
 | 6 | React frontend | done |
-| 7 | Charts, multi-DB upload, voice input | pending |
+| 7 | Charts, multi-DB upload, voice input | done |
 | 8 | Deploy | pending |
 
 ## Layout
@@ -31,6 +31,7 @@ backend/
     schema_service.py     introspection cache + CREATE TABLE DDL rendering
     sql_generator.py      NL -> SQL (stubbed until Phase 3)
     safety.py             sqlglot parse + SELECT-only allowlist + row limit
+    upload_service.py     validates and registers user-supplied .sqlite files
     llm_log.py            {prompt, response, latency} JSONL logging
   data/
     seed_demo.py          4-table sales dataset
@@ -40,7 +41,10 @@ frontend/
   src/
     api.js                every backend call, one response shape
     App.jsx               page state and the ask/run flows
-    components/           SchemaPanel, SqlPanel, ResultTable
+    chartSpec.js          picks bar / line / stat tile / nothing from a result
+    useSpeech.js          Web Speech API hook (browser-side only)
+    components/           DatabasePicker, SchemaPanel, SqlPanel,
+                          ResultChart, ResultTable
     styles.css
 ```
 
@@ -81,6 +85,10 @@ Response shape is always `{ sql, result, error, columns, attempts }`. `error` is
 the browser. It shares the safety layer but skips generation and retry: the
 user is the author, so an error is theirs to read and fix.
 
+`POST /databases` takes a multipart `file` and registers an uploaded SQLite
+database, returning `{db_id, label, tables}`. `GET /health` lists what is
+registered, which is what the database picker renders.
+
 ## Design rules
 
 - Every SQL string passes through `services/safety.py::check()` before execution. No exceptions, no string interpolation into `cursor.execute`.
@@ -94,6 +102,10 @@ user is the author, so an error is theirs to read and fix.
 - Schemas are cached per `db_id` and evicted by a cheap fingerprint (SQLite: file mtime + size), so introspection does not run on every request.
 - Every LLM call is logged with prompt, response and latency (`services/llm_log.py`).
 - `db_id` is a registry key, never a filesystem path from the client.
+- An upload is checked cheapest-first: extension, then size, then SQLite's magic header, then an actual read-only introspection. It is stored under a generated id, never the client's filename, so a traversal attempt is just a odd-looking label.
+- Chart type is derived from the data, not chosen: a single value is a stat tile (never a one-bar bar chart), a date-like x axis is a line, categories are bars, and 25+ rows stay a table. Numeric `id` columns are labels, not measures.
+- Chart colours are the first three slots of a validated categorical palette, checked against this app's surface for lightness, chroma, colour-blind separation and contrast. A fourth measure is never given a generated hue - it stays in the table.
+- Voice input is entirely browser-side (Web Speech API). No audio reaches the backend, and the button is hidden where the API is missing rather than shown broken.
 - Editing the SQL in the browser does not make it trusted: `/execute` runs it through the same `safety.check()` as generated SQL.
 - The frontend never branches on HTTP status. Every call resolves to `{sql, result, error, columns, attempts}` and `error` is the only failure channel - even a network outage is synthesised into that shape.
 - The generated SQL is shown and editable because it is a draft, not an oracle; the schema sits on screen because the first question about a wrong answer is always whether the model knew about that column.
