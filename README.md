@@ -99,8 +99,14 @@ happens to include. The same image runs anywhere:
 
 ```bash
 docker build -t text-to-sql .
-docker run -p 8000:8000 -e ANTHROPIC_API_KEY=sk-ant-... text-to-sql
+docker run -p 5000:5000 -e ANTHROPIC_API_KEY=sk-ant-... text-to-sql
+# or, keeping the key out of your shell history:
+docker run -p 5000:5000 --env-file .env text-to-sql
 ```
+
+`--env-file` is read by Docker itself, not by the app, so a `.env` file works
+for a container run even though nothing loads one for a local `python -m
+backend.app`.
 
 **Uploaded databases are ephemeral.** They are written to the container's
 local disk and are lost on every restart and redeploy - which on Render's free
