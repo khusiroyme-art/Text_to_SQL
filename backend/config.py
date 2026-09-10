@@ -1,5 +1,32 @@
 import os
 
+# Load .env if one sits next to the repo root, so a key set once keeps working
+# across restarts instead of having to be re-exported into every new shell.
+# Real environment variables always win: on a host like Render the dashboard is
+# the source of truth and must never be shadowed by a file that rode along in
+# the image.
+def _load_dotenv() -> None:
+    path = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env"
+    )
+    try:
+        with open(path, encoding="utf-8") as fh:
+            lines = fh.readlines()
+    except OSError:
+        return
+    for line in lines:
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        key = key.strip()
+        value = value.strip().strip("\"'")
+        if key and key not in os.environ:
+            os.environ[key] = value
+
+
+_load_dotenv()
+
 FLASK_HOST = os.environ.get("FLASK_HOST", "127.0.0.1")
 # Off unless asked for. A debug-on default is fine until the day it ships:
 # Flask's debugger executes arbitrary code from the browser. Turn it on

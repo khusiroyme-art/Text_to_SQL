@@ -45,10 +45,14 @@ def _get_client() -> anthropic.Anthropic:
     """
     global _client
     if _client is None:
-        if not config.ANTHROPIC_API_KEY:
+        # The placeholder counts as unset: copying .env.example to .env leaves
+        # the literal "sk-ant-..." behind, and letting that reach the API turns
+        # a solvable "you have not set a key" into an opaque 401.
+        if not config.ANTHROPIC_API_KEY or config.ANTHROPIC_API_KEY == "sk-ant-...":
             raise GenerationError(
-                "ANTHROPIC_API_KEY is not set. Export it in the shell that runs the "
-                "server (see .env.example for every supported variable)."
+                "ANTHROPIC_API_KEY is not set. Put your key in .env next to "
+                "render.yaml, or export it in the shell that runs the server "
+                "(see .env.example for every supported variable)."
             )
         _client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
     return _client

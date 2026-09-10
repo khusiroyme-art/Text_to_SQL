@@ -31,7 +31,9 @@ RUN mkdir -p backend/uploads
 # a plain `docker run`.
 EXPOSE 5000
 
-# Threads, not more workers: every request spends its time waiting on the
-# Anthropic API or on SQLite, so this is an I/O-bound service. The timeout
-# clears the worst case - MAX_ATTEMPTS model calls plus query time.
-CMD ["sh", "-c", "gunicorn --bind 0.0.0.0:${PORT:-5000} --workers 2 --threads 4 --timeout 180 backend.app:app"]
+# One worker, many threads: every request spends its time waiting on the
+# Anthropic API or on SQLite, so this is an I/O-bound service, and a second
+# worker would only double the resident memory - which does not fit in the
+# 512 MB a Render free instance gets. The timeout clears the worst case -
+# MAX_ATTEMPTS model calls plus query time.
+CMD ["sh", "-c", "gunicorn --bind 0.0.0.0:${PORT:-5000} --workers 1 --threads 8 --timeout 180 backend.app:app"]

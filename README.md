@@ -58,7 +58,8 @@ Backend:
 
 ```bash
 pip install -r backend/requirements.txt
-export ANTHROPIC_API_KEY=sk-ant-...   # see .env.example
+cp .env.example .env                 # then put your key in it (gitignored)
+# or, without a file: export ANTHROPIC_API_KEY=sk-ant-...
 python backend/data/seed_demo.py     # only needed to re-seed
 python -m backend.app                # http://127.0.0.1:5000
 ```
